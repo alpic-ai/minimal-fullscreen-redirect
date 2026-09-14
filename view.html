@@ -16,7 +16,7 @@
       </div>
     </div>
   </div>
-  <pre id="log" style="font-size:11px;white-space:pre-wrap;margin:8px"></pre>
+  <pre id="log" style="font-size:11px;white-space:pre-wrap;margin:8px;height:160px;overflow:auto"></pre>
   <script type="module">
 __EXT_APPS_BUNDLE__
 
@@ -56,8 +56,11 @@ __EXT_APPS_BUNDLE__
     log("ontoolresult", p?.structuredContent);
   };
   app.onhostcontextchanged = (ctx) => {
+    // Dimension-only updates are skipped: logging them grows the page, which
+    // triggers a new size report to the host, which sends new dimensions, ad infinitum.
+    if (!ctx?.displayMode) return;
     log("onhostcontextchanged", ctx);
-    if (ctx?.displayMode) setMode(ctx.displayMode, "ext-apps");
+    setMode(ctx.displayMode, "ext-apps");
   };
   let connected = false;
   app.connect().then(() => {
