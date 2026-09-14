@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "echo 'nothing to build'",
     "start": "node server.mjs"
   },
   "dependencies": {
