@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /></head>
+<body>
+  <div id="card" style="border:1px solid #999;padding:16px;margin:8px">
+    <h3 id="title">Card</h3>
+    <p>mode: <b id="mode">?</b> | window.openai: <b id="hasOpenai">?</b> | ext-apps: <b id="hasApp">?</b></p>
+    <div style="display:flex">
+      <div data-zone="extapps" style="flex:1;border-right:1px dashed #999;padding:8px">
+        <p><b>ext-apps</b><br/><span class="zoneHint">tap this half → fullscreen (ext-apps requestDisplayMode)</span></p>
+        <button data-open="extapps"><span class="modeLabel">inline</span> → link (ext-apps openLink)</button>
+      </div>
+      <div data-zone="appssdk" style="flex:1;padding:8px">
+        <p><b>Apps SDK</b><br/><span class="zoneHint">tap this half → fullscreen (window.openai.requestDisplayMode)</span></p>
+        <button data-open="appssdk"><span class="modeLabel">inline</span> → link (Apps SDK openExternal)</button>
+      </div>
+    </div>
+  </div>
+  <pre id="log" style="font-size:11px;white-space:pre-wrap;margin:8px"></pre>
+  <script type="module">
+__EXT_APPS_BUNDLE__
+
+{
+  const URL_TO_OPEN = "https://www.google.com";
+  const $ = (id) => document.getElementById(id);
+  const log = (...a) => {
+    const line = `${new Date().toISOString().slice(11, 23)} ${a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ")}`;
+    $("log").textContent = line + "\n" + $("log").textContent;
+    console.warn("[bug]", line);
+  };
+  let mode = "inline";
+  const setMode = (m, source) => {
+    if (m && m !== mode) log("displayMode", mode, "→", m, `(${source})`);
+    mode = m ?? mode;
+    $("mode").textContent = mode;
+    document.querySelectorAll(".modeLabel").forEach((el) => (el.textContent = mode));
+    document.querySelectorAll(".zoneHint").forEach((el) => (el.style.display = mode === "fullscreen" ? "none" : ""));
+  };
+
+  // Legacy Apps SDK
+  const openai = window.openai;
+  $("hasOpenai").textContent = String(!!openai);
+  if (openai) {
+    setMode(openai.displayMode, "openai initial");
+    window.addEventListener("openai:set_globals", (e) => {
+      const g = e.detail?.globals ?? {};
+      if ("displayMode" in g) setMode(g.displayMode, "openai:set_globals");
+    });
+  }
+
+  // MCP Apps (ext-apps)
+  const app = new App({ name: "bug-fullscreen-redirect", version: "0.0.1" }, {});
+  app.ontoolresult = (p) => {
+    const t = p?.structuredContent?.title;
+    if (t) $("title").textContent = t;
+    log("ontoolresult", p?.structuredContent);
+  };
+  app.onhostcontextchanged = (ctx) => {
+    log("onhostcontextchanged", ctx);
+    if (ctx?.displayMode) setMode(ctx.displayMode, "ext-apps");
+  };
+  let connected = false;
+  app.connect().then(() => {
+    connected = true;
+    $("hasApp").textContent = "connected";
+    const ctx = app.getHostContext();
+    log("ext-apps connected", { host: app.getHostVersion(), ctx });
+    if (ctx?.displayMode) setMode(ctx.displayMode, "ext-apps initial");
+  }).catch((e) => { $("hasApp").textContent = "failed"; log("ext-apps connect failed", String(e)); });
+
+  document.addEventListener("visibilitychange", () => log("visibility", document.visibilityState));
+  window.addEventListener("pagehide", () => log("pagehide"));
+
+  const openLink = async (via) => {
+    log("open", via, "from", mode);
+    try {
+      if (via === "appssdk") {
+        if (!openai) return log("no window.openai");
+        const r = await openai.openExternal({ href: URL_TO_OPEN });
+        log("openExternal resolved", r);
+      } else {
+        if (!connected) return log("ext-apps not connected");
+        const r = await app.openLink({ url: URL_TO_OPEN });
+        log("openLink resolved", r);
+      }
+    } catch (e) { log("open failed", String(e)); }
+  };
+  const enterFullscreen = async (via) => {
+    log("requestDisplayMode fullscreen via", via);
+    try {
+      if (via === "appssdk" && !openai) return log("no window.openai");
+      if (via === "extapps" && !connected) return log("ext-apps not connected");
+      const r = via === "appssdk"
+        ? await openai.requestDisplayMode({ mode: "fullscreen" })
+        : await app.requestDisplayMode({ mode: "fullscreen" });
+      log("requestDisplayMode resolved", r);
+      if (r?.mode) setMode(r.mode, `${via} response`);
+    } catch (e) { log("requestDisplayMode failed", String(e)); }
+  };
+
+  $("card").addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (btn?.dataset.open) return openLink(btn.dataset.open);
+    const zone = e.target.closest("[data-zone]")?.dataset.zone;
+    if (zone && mode !== "fullscreen") enterFullscreen(zone);
+  });
+}
+  </script>
+</body>
+</html>
